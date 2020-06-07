@@ -21,15 +21,20 @@ from ws4py.server.wsgirefserver import (
 )
 from ws4py.server.wsgiutils import WebSocketWSGIApplication
 
+import Adafruit_DHT
+
+DHT_SENSOR = Adafruit_DHT.DHT22
+DHT_PIN = 4
+
 ###########################################
 # CONFIGURATION
 WIDTH = 640
 HEIGHT = 480
 FRAMERATE = 24
-HTTP_PORT = 8082
+HTTP_PORT = 80
 WS_PORT = 8084
 COLOR = u'#444'
-BGCOLOR = u'#333'
+BGCOLOR = u'#fff'
 JSMPEG_MAGIC = b'jsmp'
 JSMPEG_HEADER = Struct('>4sHH')
 VFLIP = False
@@ -54,9 +59,11 @@ class StreamingHttpHandler(BaseHTTPRequestHandler):
         elif self.path == '/index.html':
             content_type = 'text/html; charset=utf-8'
             tpl = Template(self.server.index_template)
+            humidity, temperature = Adafruit_DHT.read_retry(DHT_SENSOR, DHT_PIN)
+            ROOM_INFO = "Temp={0:0.1f}*C  Humidity={1:0.1f}%".format(temperature, humidity)
             content = tpl.safe_substitute(dict(
                 WS_PORT=WS_PORT, WIDTH=WIDTH, HEIGHT=HEIGHT, COLOR=COLOR,
-                BGCOLOR=BGCOLOR))
+                BGCOLOR=BGCOLOR, ROOM_INFO=ROOM_INFO))
         else:
             self.send_error(404, 'File not found')
             return
