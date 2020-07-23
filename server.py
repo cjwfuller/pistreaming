@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import datetime
 import sys
 import io
 import os
@@ -11,6 +12,7 @@ from threading import Thread
 from time import sleep, time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from wsgiref.simple_server import make_server
+import pytz
 
 import picamera
 from ws4py.websocket import WebSocket
@@ -22,6 +24,7 @@ from ws4py.server.wsgirefserver import (
 from ws4py.server.wsgiutils import WebSocketWSGIApplication
 
 import Adafruit_DHT
+import sqlite3
 
 DHT_SENSOR = Adafruit_DHT.DHT22
 DHT_PIN = 4
@@ -31,16 +34,40 @@ DHT_PIN = 4
 WIDTH = 640
 HEIGHT = 480
 FRAMERATE = 24
-HTTP_PORT = 80
+HTTP_PORT = 8080
 WS_PORT = 8084
 COLOR = u'#444'
-BGCOLOR = u'#fff'
+BGCOLOR = u'white'
 JSMPEG_MAGIC = b'jsmp'
 JSMPEG_HEADER = Struct('>4sHH')
 VFLIP = False
 HFLIP = False
 
 ###########################################
+
+def get_record_low():
+    conn = sqlite3.connect('/home/pi/sensors/sensors.db')
+    c = conn.cursor()
+    result = c.execute('select min(temperature), datetime from minutely')
+    row = c.fetchone()
+    time = row[1].split('.')[0]
+    return str(round(row[0], 2)) + "*C recorded on " + time
+
+
+def get_record_high():
+    conn = sqlite3.connect('/home/pi/sensors/sensors.db')
+    c = conn.cursor()
+    result = c.execute('select max(temperature), datetime from minutely')
+    row = c.fetchone()
+    time = row[1].split('.')[0]
+    return str(round(row[0], 2)) + "*C recorded on " + time 
+
+def get_num_observations():
+    conn = sqlite3.connect('/home/pi/sensors/sensors.db')
+    c = conn.cursor()
+    result = c.execute('select count(1) from minutely')
+    row = c.fetchone()
+    return row[0]
 
 
 class StreamingHttpHandler(BaseHTTPRequestHandler):
@@ -59,11 +86,20 @@ class StreamingHttpHandler(BaseHTTPRequestHandler):
         elif self.path == '/index.html':
             content_type = 'text/html; charset=utf-8'
             tpl = Template(self.server.index_template)
-            humidity, temperature = Adafruit_DHT.read_retry(DHT_SENSOR, DHT_PIN)
-            ROOM_INFO = "Temp={0:0.1f}*C  Humidity={1:0.1f}%".format(temperature, humidity)
+            ROOM_INFO = None
+            humidity, temperature = Adafruit_DHT.read_retry(DHT_SENSOR, DHT_PIN, retries=2)
+            if humidity is not None and temperature is not None:
+                ROOM_INFO = "Temp={0:0.1f}*C  Humidity={1:0.1f}%".format(temperature, humidity)
+            record_low = get_record_low()
+            record_high = get_record_high()
+            num_observations = get_num_observations()
+            tz = pytz.timezone('Australia/Sydney')
+            now = datetime.datetime.now(tz).isoformat()
             content = tpl.safe_substitute(dict(
                 WS_PORT=WS_PORT, WIDTH=WIDTH, HEIGHT=HEIGHT, COLOR=COLOR,
-                BGCOLOR=BGCOLOR, ROOM_INFO=ROOM_INFO))
+                BGCOLOR=BGCOLOR, ROOM_INFO=ROOM_INFO, RECORD_LOW=record_low,
+                RECORD_HIGH=record_high, NUM_OBSERVATIONS=num_observations,
+                CURRENT_DATE=now))
         else:
             self.send_error(404, 'File not found')
             return
